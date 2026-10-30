@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from alembic import command
@@ -16,9 +17,26 @@ from testcontainers.community.redis import RedisContainer
 from infrastructure.cache import RedisCache, get_cache
 from src.application import get_app
 from src.db import get_session
+from src.dependencies import get_reviews_client
+from src.schemas.review import ReviewNestedCreate, ReviewResponse
 from src.services.doctor_appointment import DoctorAppointmentService
 from src.services.med_card_insurance import MedCardInsuranceService
 from src.services.patient_med_service import PatientMedServiceService
+
+
+class FakeReviewsClient:
+    async def list_by_doctor(self, doctor_id: UUID) -> list[ReviewResponse]:
+        return []
+
+    async def create_review(
+        self,
+        doctor_id: UUID,
+        review: ReviewNestedCreate,
+    ) -> ReviewResponse | None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -111,7 +129,7 @@ def cache(redis: Redis) -> RedisCache:
 
 @pytest.fixture
 def doctor_service(session: AsyncSession, cache: RedisCache) -> DoctorAppointmentService:
-    return DoctorAppointmentService(session, cache)
+    return DoctorAppointmentService(session, cache, FakeReviewsClient())
 
 
 @pytest.fixture
@@ -135,9 +153,13 @@ async def client(
     async def override_get_cache() -> RedisCache:
         return cache
 
+    def override_get_reviews_client() -> FakeReviewsClient:
+        return FakeReviewsClient()
+
     app = get_app()
     app.dependency_overrides[get_session] = override_get_session
     app.dependency_overrides[get_cache] = override_get_cache
+    app.dependency_overrides[get_reviews_client] = override_get_reviews_client
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http_client:

@@ -5,11 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.repositories import CacheInvalidationRepository
+from infrastructure.cache import RedisCache
+from infrastructure.reviews import ReviewsClient
 from src.exceptions.exceptions import NotFoundException
 from src.models.appointment import Appointment as AppointmentModel
 from src.models.doctor import Doctor as DoctorModel
-from infrastructure.cache import RedisCache
+from src.repositories import CacheInvalidationRepository
 from src.schemas.doctor import (
     DoctorWithAppointmentCreate,
     DoctorWithAppointmentResponse,
@@ -21,9 +22,15 @@ logger = logging.getLogger(__name__)
 
 class DoctorAppointmentService:
 
-    def __init__(self, session: AsyncSession, cache: RedisCache):
+    def __init__(
+        self,
+        session: AsyncSession,
+        cache: RedisCache,
+        reviews: ReviewsClient,
+    ):
         self.session = session
         self.cache = cache
+        self.reviews = reviews
         self.invalidation_repo = CacheInvalidationRepository(session)
 
     @staticmethod
@@ -55,16 +62,27 @@ class DoctorAppointmentService:
             raise NotFoundException(message)
         return doctor
 
+    async def _with_reviews(
+        self,
+        response: DoctorWithAppointmentResponse,
+    ) -> DoctorWithAppointmentResponse:
+        reviews = await self.reviews.list_by_doctor(response.id)
+        return response.model_copy(update={"reviews": reviews})
+
     async def get_doctor_with_appointment(self, doctor_id: UUID) -> DoctorWithAppointmentResponse:
         cache_key = self._cache_key(doctor_id)
         cached = await self.cache.get(cache_key)
         if cached:
-            return DoctorWithAppointmentResponse.model_validate_json(cached)
+            response = DoctorWithAppointmentResponse.model_validate_json(cached)
+            return await self._with_reviews(response)
 
         doctor = await self._get_doctor_model(doctor_id)
         response = DoctorWithAppointmentResponse.from_model(doctor)
-        await self.cache.set(cache_key, response.model_dump_json())
-        return response
+        await self.cache.set(
+            cache_key,
+            response.model_dump_json(exclude={"reviews"}),
+        )
+        return await self._with_reviews(response)
 
     async def create_doctor_with_appointment(
         self,
@@ -75,7 +93,15 @@ class DoctorAppointmentService:
         self.session.add(doctor)
         await self.session.flush()
         doctor = await self._get_doctor_model(doctor.id)
-        return DoctorWithAppointmentResponse.from_model(doctor)
+        response = DoctorWithAppointmentResponse.from_model(doctor)
+
+        if doctor_data.review is not None:
+            created = await self.reviews.create_review(doctor.id, doctor_data.review)
+            if created is not None:
+                response = response.model_copy(update={"reviews": [created]})
+                return response
+
+        return await self._with_reviews(response)
 
     async def update_doctor_with_appointment(
         self,
@@ -90,7 +116,7 @@ class DoctorAppointmentService:
         doctor = await self._get_doctor_model(doctor_id)
         response = DoctorWithAppointmentResponse.from_model(doctor)
         self._schedule_cache_invalidation(self._cache_key(doctor_id))
-        return response
+        return await self._with_reviews(response)
 
     async def delete_doctor_with_appointment(self, doctor_id: UUID) -> None:
         doctor = await self._get_doctor_model(doctor_id)

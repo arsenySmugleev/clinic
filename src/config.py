@@ -31,6 +31,26 @@ class Settings(BaseSettings):
         default=5,
         validation_alias="cache_invalidation_max_attempts",
     )
+    reviews_base_url: str = Field(
+        default="http://127.0.0.1:8001",
+        validation_alias="reviews_base_url",
+    )
+    reviews_timeout_seconds: float = Field(
+        default=2.0,
+        validation_alias="reviews_timeout_seconds",
+    )
+    reviews_max_attempts: int = Field(
+        default=3,
+        validation_alias="reviews_max_attempts",
+    )
+    reviews_backoff_base_seconds: float = Field(
+        default=0.2,
+        validation_alias="reviews_backoff_base_seconds",
+    )
+    reviews_backoff_jitter_seconds: float = Field(
+        default=0.1,
+        validation_alias="reviews_backoff_jitter_seconds",
+    )
 
     class Config:
         env_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")

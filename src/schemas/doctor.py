@@ -1,12 +1,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.models.doctor import Doctor as DoctorModel
 from src.models.appointment import Appointment as AppointmentModel
 from src.schemas.appointment import Appointment, AppointmentNestedCreate, AppointmentUpsert
 from src.schemas.common import NameStr, OptionalNameStr
+from src.schemas.review import ReviewNestedCreate, ReviewResponse
 
 
 class DoctorBase(BaseModel):
@@ -26,6 +27,7 @@ class Doctor(DoctorBase):
 
 class DoctorWithAppointmentResponse(Doctor):
     appointment: List[Appointment]
+    reviews: List[ReviewResponse] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, doctor: DoctorModel) -> "DoctorWithAppointmentResponse":
@@ -34,10 +36,13 @@ class DoctorWithAppointmentResponse(Doctor):
 
 class DoctorWithAppointmentCreate(DoctorCreate):
     appointment: List[AppointmentNestedCreate]
+    review: Optional[ReviewNestedCreate] = None
     model_config = ConfigDict(from_attributes=True)
 
     def map_data(self) -> DoctorModel:
-        doctor = DoctorModel(**self.model_dump(exclude={"appointment"}))
+        doctor = DoctorModel(
+            **self.model_dump(exclude={"appointment", "review"}),
+        )
         doctor.appointment = AppointmentNestedCreate.to_model_list(self.appointment)
         return doctor
 
