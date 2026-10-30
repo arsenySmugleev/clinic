@@ -7,6 +7,8 @@ services:
       POSTGRES_PASSWORD: 123456
     ports:
       - "5432:5432"
+    volumes:
+      - clinic_pg_data:/var/lib/postgresql/data
     networks:
       - app-network
     healthcheck:
@@ -36,6 +38,8 @@ services:
       postgres_url: postgresql+asyncpg://postgres:123456@postgres:5432/postgres
       redis_url: redis://redis:6379
       cache_ttl_seconds: "3600"
+      reviews_base_url: http://host.docker.internal:8001
+      reviews_max_attempts: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +47,8 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker:
     build: .
@@ -78,3 +84,6 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  clinic_pg_data:

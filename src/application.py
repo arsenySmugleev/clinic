@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 from starlette.middleware.cors import CORSMiddleware
 
 from infrastructure.cache import RedisCache
+from infrastructure.reviews import ReviewsClient
 from src.config import Settings
 from src.controllers.v1.doctors import router as doctor_appointment
 from src.controllers.v1.medical_cards import router as med_card_insurance
@@ -22,12 +23,21 @@ async def lifespan(app: FastAPI):
     settings = Settings()
     redis = Redis.from_url(str(settings.redis_url), decode_responses=True)
     cache = RedisCache(redis, settings.cache_ttl_seconds)
+    reviews_client = ReviewsClient(
+        settings.reviews_base_url,
+        timeout_seconds=settings.reviews_timeout_seconds,
+        max_attempts=settings.reviews_max_attempts,
+        backoff_base_seconds=settings.reviews_backoff_base_seconds,
+        backoff_jitter_seconds=settings.reviews_backoff_jitter_seconds,
+    )
 
     app.state.redis = redis
     app.state.cache = cache
+    app.state.reviews_client = reviews_client
 
     yield
 
+    await reviews_client.aclose()
     await redis.aclose()
 
 
