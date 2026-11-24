@@ -7,6 +7,8 @@ services:
       POSTGRES_PASSWORD: 123456
     ports:
       - "5432:5432"
+    volumes:
+      - clinic_pg_data:/var/lib/postgresql/data
     networks:
       - app-network
     healthcheck:
@@ -36,6 +38,12 @@ services:
       postgres_url: postgresql+asyncpg://postgres:123456@postgres:5432/postgres
       redis_url: redis://redis:6379
       cache_ttl_seconds: "3600"
+      reviews_base_url: http://host.docker.internal:8001
+      reviews_timeout_seconds: "2.0"
+      reviews_max_attempts: "3"
+      reviews_backoff_base_seconds: "0.2"
+      reviews_backoff_jitter_seconds: "0.1"
+      reviews_backoff_exp_base: "2.0"
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +51,8 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker:
     build: .
@@ -66,6 +76,33 @@ services:
     networks:
       - app-network
 
+  review_sync_worker:
+    build: .
+    command: ["python", "-m", "src.workers.review_sync"]
+    environment:
+      postgres_url: postgresql+asyncpg://postgres:123456@postgres:5432/postgres
+      redis_url: redis://redis:6379
+      reviews_base_url: http://host.docker.internal:8001
+      reviews_timeout_seconds: "2.0"
+      reviews_max_attempts: "3"
+      reviews_backoff_base_seconds: "0.2"
+      reviews_backoff_jitter_seconds: "0.1"
+      reviews_backoff_exp_base: "2.0"
+      review_sync_poll_interval_seconds: "2"
+      review_sync_retry_delay_seconds: "3600"
+      review_sync_batch_size: "20"
+      review_sync_lock_timeout_seconds: "60"
+      review_sync_max_attempts: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - app-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   adminer:
     image: adminer
     ports:
@@ -78,3 +115,6 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  clinic_pg_data:

@@ -18,3 +18,8 @@ class NotFoundException(AppException):
 class ValidationException(AppException):
     status_code = status.HTTP_400_BAD_REQUEST
     error_code = "VALIDATION_ERROR"
+
+
+class ReviewsUnavailableException(AppException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "REVIEWS_UNAVAILABLE"

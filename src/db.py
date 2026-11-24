@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import Settings
+from src.uow import UnitOfWork
 
 settings = Settings()
 
@@ -25,4 +26,14 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception:
             await session.rollback()
+            raise
+
+
+async def get_uow() -> AsyncGenerator[UnitOfWork, None]:
+    async with SessionFactory() as session:
+        uow = UnitOfWork(session)
+        try:
+            yield uow
+        except Exception:
+            await uow.rollback()
             raise
