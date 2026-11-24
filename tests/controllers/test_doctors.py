@@ -14,6 +14,11 @@ CREATE_PAYLOAD = {
             "name": "checkup",
         }
     ],
+    "review": {
+        "author_name": "patient",
+        "rating": 5,
+        "text": "great doctor",
+    },
 }
 
 
@@ -25,10 +30,15 @@ async def test_create_and_get_doctor_endpoint(client: AsyncClient):
     doctor_id = body["id"]
     assert body["name"] == "House"
     assert len(body["appointment"]) == 1
+    assert len(body["reviews"]) == 1
+    assert body["reviews"][0]["author_name"] == "patient"
 
     get_response = await client.get(f"/api/v1/doctor_appointment/{doctor_id}")
     assert get_response.status_code == 200
-    assert get_response.json()["id"] == doctor_id
+    get_body = get_response.json()
+    assert get_body["id"] == doctor_id
+    assert len(get_body["reviews"]) == 1
+    assert get_body["reviews"][0]["id"] == body["reviews"][0]["id"]
 
 
 @pytest.mark.asyncio

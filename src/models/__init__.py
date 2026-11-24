@@ -7,6 +7,7 @@ from src.models.insurance import Insurance
 from src.models.med_card import MedCard
 from src.models.patient_med_association import patient_med_service_association
 from src.models.cache_invalidation_job import CacheInvalidationJob, CacheInvalidationStatus
+from src.models.review_sync_job import ReviewSyncJob, ReviewSyncStatus
 
 
 __all__ = [
@@ -20,4 +21,6 @@ __all__ = [
     'patient_med_service_association',
     'CacheInvalidationJob',
     'CacheInvalidationStatus',
+    'ReviewSyncJob',
+    'ReviewSyncStatus',
 ]

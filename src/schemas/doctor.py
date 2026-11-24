@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.clients.reviews import ReviewsClient
 from src.models.doctor import Doctor as DoctorModel
 from src.models.appointment import Appointment as AppointmentModel
 from src.schemas.appointment import Appointment, AppointmentNestedCreate, AppointmentUpsert
@@ -33,10 +34,17 @@ class DoctorWithAppointmentResponse(Doctor):
     def from_model(cls, doctor: DoctorModel) -> "DoctorWithAppointmentResponse":
         return cls.model_validate(doctor)
 
+    async def with_reviews(
+        self,
+        reviews_client: ReviewsClient,
+    ) -> "DoctorWithAppointmentResponse":
+        reviews = await reviews_client.list_by_doctor(self.id)
+        return self.model_copy(update={"reviews": reviews})
+
 
 class DoctorWithAppointmentCreate(DoctorCreate):
     appointment: List[AppointmentNestedCreate]
-    review: Optional[ReviewNestedCreate] = None
+    review: ReviewNestedCreate
     model_config = ConfigDict(from_attributes=True)
 
     def map_data(self) -> DoctorModel:

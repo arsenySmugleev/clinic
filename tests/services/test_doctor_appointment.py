@@ -5,10 +5,18 @@ import pytest
 from sqlalchemy import select
 
 from src.exceptions.exceptions import NotFoundException
-from src.models import CacheInvalidationJob, CacheInvalidationStatus
+from src.models import (
+    CacheInvalidationJob,
+    CacheInvalidationStatus,
+    ReviewSyncJob,
+    ReviewSyncStatus,
+)
 from src.schemas.doctor import DoctorWithAppointmentCreate, DoctorWithAppointmentUpdate
 from src.schemas.appointment import AppointmentNestedCreate, AppointmentUpsert
+from src.schemas.review import ReviewNestedCreate
 from src.services.doctor_appointment import DoctorAppointmentService
+from src.uow import UnitOfWork
+from tests.conftest import make_permanent_error_reviews_client, make_unavailable_reviews_client
 
 
 def _create_payload(name: str = "House") -> DoctorWithAppointmentCreate:
@@ -21,6 +29,11 @@ def _create_payload(name: str = "House") -> DoctorWithAppointmentCreate:
                 name="checkup",
             )
         ],
+        review=ReviewNestedCreate(
+            author_name="patient",
+            rating=5,
+            text="great doctor",
+        ),
     )
 
 
@@ -33,6 +46,11 @@ async def _pending_cache_keys(session) -> set[str]:
     return set(result.scalars().all())
 
 
+async def _review_sync_jobs(session) -> list[ReviewSyncJob]:
+    result = await session.execute(select(ReviewSyncJob))
+    return list(result.scalars().all())
+
+
 @pytest.mark.asyncio
 async def test_create_and_get_doctor(doctor_service: DoctorAppointmentService):
     created = await doctor_service.create_doctor_with_appointment(_create_payload())
@@ -41,10 +59,69 @@ async def test_create_and_get_doctor(doctor_service: DoctorAppointmentService):
     assert created.specialty == "diagnostics"
     assert len(created.appointment) == 1
     assert created.appointment[0].name == "checkup"
+    assert len(created.reviews) == 1
+    assert created.reviews[0].author_name == "patient"
+    assert created.reviews[0].rating == 5
+    assert await _review_sync_jobs(doctor_service.session) == []
 
     fetched = await doctor_service.get_doctor_with_appointment(created.id)
     assert fetched.id == created.id
     assert fetched.name == created.name
+    assert len(fetched.reviews) == 1
+    assert fetched.reviews[0].id == created.reviews[0].id
+
+
+@pytest.mark.asyncio
+async def test_get_enriches_reviews_from_live_client(
+    doctor_service: DoctorAppointmentService,
+):
+    created = await doctor_service.create_doctor_with_appointment(_create_payload("Chase"))
+    fetched = await doctor_service.get_doctor_with_appointment(created.id)
+
+    assert len(fetched.reviews) == 1
+    assert fetched.reviews[0].author_name == "patient"
+    assert fetched.reviews[0].text == "great doctor"
+
+
+@pytest.mark.asyncio
+async def test_create_schedules_pending_review_sync_on_temporary_error(
+    session,
+    cache,
+):
+    client = make_unavailable_reviews_client()
+    try:
+        service = DoctorAppointmentService(UnitOfWork(session), cache, client)
+        created = await service.create_doctor_with_appointment(_create_payload())
+
+        assert created.name == "House"
+        assert created.reviews == []
+        jobs = await _review_sync_jobs(session)
+        assert len(jobs) == 1
+        assert jobs[0].status == ReviewSyncStatus.PENDING
+        assert jobs[0].doctor_id == created.id
+        assert jobs[0].author_name == "patient"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_create_marks_failed_review_sync_on_permanent_error(
+    session,
+    cache,
+):
+    client = make_permanent_error_reviews_client()
+    try:
+        service = DoctorAppointmentService(UnitOfWork(session), cache, client)
+        created = await service.create_doctor_with_appointment(_create_payload())
+
+        assert created.name == "House"
+        assert created.reviews == []
+        jobs = await _review_sync_jobs(session)
+        assert len(jobs) == 1
+        assert jobs[0].status == ReviewSyncStatus.FAILED
+        assert jobs[0].doctor_id == created.id
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.asyncio
